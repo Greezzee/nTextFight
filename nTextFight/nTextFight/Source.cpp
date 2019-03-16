@@ -5,15 +5,12 @@
 #include <string>
 #include <cmath>
 #include <SFML/Graphics.hpp>
-
 #define uint unsigned int
-
 using namespace std;
 
-struct stats
-{
-	int strenght, agility, accuracy, intelligence;
-};
+int msStepTime = 500000;
+
+
 struct attackPackage {
 	int DMG;
 	int successChange;
@@ -21,6 +18,13 @@ struct attackPackage {
 struct effect {
 	int ID, duration = 0;
 	int level;
+};
+struct skills {
+	int ID, 
+};
+struct stats
+{
+	int strenght, agility, accuracy, intelligence;
 };
 
 float sigmoid(float x) {
@@ -34,15 +38,17 @@ public:
 		myID = id;
 
 		myTexture.loadFromFile("./Sprites/Characters/" + spriteName + ".png");
+		punchTexture.loadFromFile("./Sprites/Effects/std_punch.png");
 		mySprite.setTexture(myTexture);
+		punchSprite.setTexture(punchTexture);
 
 		baseHP = 100;
 		baseDMG = 10;
 		realHP = baseHP;
 		currentHP = realHP;
 		realDMG = baseDMG;
-		myStats.accuracy = 50;
-		myStats.agility = 50;
+		myStats.accuracy = 100;
+		myStats.agility = 0;
 		myStats.intelligence = 50;
 		myStats.strenght = 50;
 
@@ -51,36 +57,44 @@ public:
 		position = startPos;
 
 		effects.resize(0);
-		effect e;
-		e.ID = 0;
-		e.level = 1;
-		effects.push_back(e);
-
 
 		isAlive = true;
-	}
+		isActionDone = false;
 
-	void action(vector<player*> enemy) {
-		auto target = chooseTarget(enemy);
-		attackPackage myAttack;
-		myAttack.DMG = realDMG;
-		myAttack.successChange = myStats.accuracy;
-
-		cout << myName + "(" + to_string(currentHP) + ")" << " attack ";
-
-		target->takeAttack(myAttack);
-	}
-
-	void update(sf::RenderWindow *window, string team, int ID) {
-		sf::Vector2i spritePos;
 		if (myTeam == "red") spritePos = sf::Vector2i(256 - 64 * position.x, 16 + 128 * position.y);
 		if (myTeam == "blue") spritePos = sf::Vector2i(256 + 64 * position.x, 16 + 128 * position.y);
-		mySprite.setPosition(spritePos.x, spritePos.y);
-		if (team == myTeam && ID == myID) {
-			sf::RectangleShape aura(sf::Vector2f(36, 68));
-			aura.setPosition(spritePos.x - 2, spritePos.y - 2);
-			window->draw(aura);
+	}
+
+	void action(vector<player*> enemy, sf::RenderWindow *window, sf::Time thisStep, bool isNewStep) {
+		
+		if (isNewStep) target = chooseTarget(enemy);
+
+		punchSprite.setTextureRect(sf::IntRect(64 * (int)(thisStep.asMicroseconds() * 4 / msStepTime), 0, 64, 64));
+		punchSprite.setPosition(target->getPosition().x - 16, target->getPosition().y);
+		window->draw(punchSprite);
+
+		sf::RectangleShape aura(sf::Vector2f(36, 68));
+		aura.setFillColor(sf::Color(0, 0, 0, 0));
+		aura.setOutlineColor(sf::Color(255, 255, 255, 255));
+		aura.setOutlineThickness(-2);
+		aura.setPosition(spritePos.x - 2, spritePos.y - 2);
+		window->draw(aura);
+
+
+
+		if (!isActionDone && thisStep.asMicroseconds() > msStepTime / 2) {
+			attackPackage myAttack;
+			myAttack.DMG = realDMG;
+			myAttack.successChange = myStats.accuracy;
+			cout << myName + "(" + to_string(currentHP) + ")" << " attack ";
+			target->takeAttack(myAttack);
+			isActionDone = true;
 		}
+	}
+
+	void update(sf::RenderWindow *window) {
+
+		mySprite.setPosition(spritePos.x, spritePos.y);
 		window->draw(mySprite);
 
 		sf::RectangleShape healthBar(sf::Vector2f(64, 10));
@@ -90,6 +104,10 @@ public:
 		activeHeathBar.setFillColor(sf::Color::Red);
 		window->draw(healthBar);
 		window->draw(activeHeathBar);
+	}
+
+	void refresh() {
+		isActionDone = false;
 	}
 
 	void takeAttack(attackPackage attack) {
@@ -126,21 +144,25 @@ public:
 	bool getAlive() {
 		return isAlive;
 	}
+	sf::Vector2f getPosition() {
+		return mySprite.getPosition();
+	}
 
 private:
 	int myID;
 	int baseHP, baseDMG;
 	int realHP, realDMG;
 	int currentHP;
-	bool isAlive;
+	bool isAlive, isActionDone;
 	stats myStats;
 	string myTeam;
 	string myName;
 	list<effect> effects;
 	sf::Vector2i position;
-	sf::Texture myTexture;
-	sf::Sprite mySprite;
-
+	sf::Texture myTexture, punchTexture;
+	sf::Sprite mySprite, punchSprite;
+	sf::Vector2i spritePos;
+	player* target;
 	player* chooseTarget(vector<player*> enemy) {
 		for (uint i = 0; i < enemy.size(); i++) {
 
@@ -200,14 +222,14 @@ int main() {
 	}
 
 	sf::Clock clock;
-	sf::Time timer, stepTime;
+	sf::Time timer, stepTimer;
 
 	int activePlayerID = 0;
 	string activeTeam = "red";
-	bool newStep = true;
-
+	bool isNewStep = true;
 	while (window.isOpen()) {
 		timer += clock.getElapsedTime();
+		stepTimer += timer;
 		clock.restart();
 		sf::Event event;
 		while (window.pollEvent(event))
@@ -216,47 +238,38 @@ int main() {
 				window.close();
 		}
 
-		if (testForAlive(redTeam, blueTeam) != 0) {
-
-		}
-		else if (timer.asMicroseconds() >= 500000) {
-
-			if (activeTeam == "red" && newStep) {
-				for (int i = 0; i < redTeam.size(); i++) redTeam[i]->activateEffects();
-				newStep = false;
-				activePlayerID = 0;
-			}
-			if (activeTeam == "blue" && newStep) {
-				for (int i = 0; i < blueTeam.size(); i++) blueTeam[i]->activateEffects();
-				newStep = false;
-				activePlayerID = 0;
-			}
-
-			window.clear(sf::Color(0, 75, 0));
-			for (uint i = 0; i < blueTeam.size(); i++) blueTeam[i]->update(&window, activeTeam, activePlayerID);
-			for (uint i = 0; i < blueTeam.size(); i++) redTeam[i]->update(&window, activeTeam, activePlayerID);
-			window.display();
-
+		window.clear(sf::Color(0, 100, 0));
+		if (stepTimer.asMicroseconds() >= msStepTime) {
+			stepTimer = stepTimer.Zero;
+			isNewStep = true;
 			if (activeTeam == "red") {
-			    redTeam[activePlayerID]->action(blueTeam);
-				activePlayerID++;
-				if (activePlayerID >= redTeam.size()) {
+				redTeam[activePlayerID]->refresh();
+				if (activePlayerID == redTeam.size() - 1) {
+					activePlayerID = 0;
 					activeTeam = "blue";
-					newStep = true;
 				}
+				else activePlayerID++;
 			}
 			else if (activeTeam == "blue") {
-			    blueTeam[activePlayerID]->action(redTeam);
-				activePlayerID++;
-				if (activePlayerID >= blueTeam.size()) {
+				blueTeam[activePlayerID]->refresh();
+				if (activePlayerID == blueTeam.size() - 1) {
+					activePlayerID = 0;
 					activeTeam = "red";
-					newStep = true;
 				}
+				else activePlayerID++;
 			}
 
-			timer = timer.Zero;
 		}
 
+		for (uint i = 0; i < redTeam.size(); i++) redTeam[i]->update(&window);
+		for (uint i = 0; i < blueTeam.size(); i++) blueTeam[i]->update(&window);
+
+		if (activeTeam == "red") redTeam[activePlayerID]->action(blueTeam, &window, stepTimer, isNewStep);
+		else if (activeTeam == "blue") blueTeam[activePlayerID]->action(redTeam, &window, stepTimer, isNewStep);
+
+		window.display();
+		timer = timer.Zero;
+		isNewStep = false;
 	}
 	system("pause");
 	return 0;
